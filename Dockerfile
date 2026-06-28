@@ -32,8 +32,10 @@ RUN pip install --no-cache-dir -e ".[dev,vision]" || \
         openai google-generativeai anthropic ollama \
         yt-dlp gallery-dl
 
-# Install Playwright browsers (for DOM extraction fallback)
-RUN playwright install chromium 2>/dev/null || true
+# Install Playwright browsers (for DOM extraction fallback) - run as root before USER app
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/playwright-browsers
+RUN mkdir -p /app/playwright-browsers && \
+    playwright install chromium 2>&1 || echo "Playwright install failed, will try at runtime"
 
 # Copy application code
 COPY src/ ./src/
