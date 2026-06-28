@@ -37,7 +37,7 @@ FROM dependencies AS builder
 
 COPY src/ ./src/
 COPY tests/ ./tests/
-COPY .env.example ./
+RUN touch .env
 
 RUN python -c "import src; print('Build OK')"
 
@@ -66,7 +66,7 @@ RUN addgroup --system --gid 1001 app && \
 COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app/src ./src
-COPY --from=builder /app/.env.example ./.env
+COPY --from=builder /app/.env ./.env
 
 RUN mkdir -p /data/downloads /data/recordings /data/output /data/temp && \
     chown -R app:app /data /app
