@@ -32,41 +32,21 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e ".[dev,vision]" && \
     pip install --no-cache-dir yt-dlp gallery-dl
 
-# --- Stage 3: Builder ---
-FROM dependencies AS builder
-
-COPY src/ ./src/
-COPY tests/ ./tests/
-RUN touch .env
-
-RUN python -c "import src; print('Build OK')"
-
-# --- Stage 4: Runner (producción) ---
-FROM python:3.13-slim AS runner
+# --- Stage 3: Runner (producción) ---
+FROM dependencies AS runner
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 RUN addgroup --system --gid 1001 app && \
     adduser --system --uid 1001 --gid 1001 app
 
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-COPY --from=builder /app/src ./src
-COPY --from=builder /app/.env ./.env
+COPY src/ ./src/
+
+RUN python -c "import src; print('Build OK')"
 
 RUN mkdir -p /data/downloads /data/recordings /data/output /data/temp && \
     chown -R app:app /data /app
