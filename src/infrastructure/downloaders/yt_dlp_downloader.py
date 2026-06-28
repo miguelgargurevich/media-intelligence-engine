@@ -35,13 +35,13 @@ class YTDLPDownloader(IDownloader):
             cmd = [
                 settings.yt_dlp_path,
                 "--no-playlist",
-                "--restrict-filenames",
                 "--print", "after_move:filepath",
                 "--print", "title",
                 "--print", "duration",
                 "--print", "width",
                 "--print", "height",
                 "-o", output_template,
+                "--max-filesize", "500M",
                 str(url),
             ]
 
