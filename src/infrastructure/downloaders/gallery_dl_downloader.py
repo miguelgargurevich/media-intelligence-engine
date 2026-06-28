@@ -30,12 +30,12 @@ class GalleryDLDownloader(IDownloader):
     ) -> DownloadResult:
         """Download media using gallery-dl."""
         try:
-            # gallery-dl can output JSON metadata with --writer
             cmd = [
                 settings.gallery_dl_path,
                 "--directory", str(output_dir),
                 "--filename", "{title}_{id}.{extension}",
                 "--write-metadata",
+                "--cookies-from-browser", "chrome",
                 str(url),
             ]
 
@@ -61,11 +61,17 @@ class GalleryDLDownloader(IDownloader):
                     strategy=self.name,
                 )
 
-            # Find the most recently created file in output dir
-            files = sorted(output_dir.iterdir(), key=lambda f: f.stat().st_mtime, reverse=True)
-            if files:
+            # gallery-dl creates subdirs like ./gallery-dl/instagram/user/video.mp4
+            # Search recursively for the most recently created media file (exclude .json metadata)
+            media_extensions = {".mp4", ".webm", ".mkv", ".mov", ".avi", ".m4a", ".mp3", ".wav", ".flac", ".jpg", ".jpeg", ".png", ".gif"}
+            all_files = sorted(
+                (p for p in output_dir.rglob("*") if p.is_file() and p.stat().st_size > 0 and p.suffix.lower() in media_extensions),
+                key=lambda f: f.stat().st_mtime,
+                reverse=True,
+            )
+            if all_files:
                 return DownloadResult.success(
-                    file_path=files[0],
+                    file_path=all_files[0],
                     strategy=self.name,
                 )
 

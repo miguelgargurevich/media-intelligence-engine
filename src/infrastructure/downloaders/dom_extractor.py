@@ -40,23 +40,33 @@ class DOMExtractorDownloader(IDownloader):
                 )
                 page = await context.new_page()
 
-                await page.goto(str(url), wait_until="domcontentloaded", timeout=30000)
+                # Intercept network requests to capture video/media URLs BEFORE navigation
+                video_urls: list[str] = []
 
-                # Wait a bit for dynamic content
-                await asyncio.sleep(3)
+                async def intercept_response(response):
+                    content_type = response.headers.get("content-type", "")
+                    if any(t in content_type for t in ["video/", "audio/", "application/octet-stream"]):
+                        url_str = str(response.url)
+                        if url_str not in video_urls:
+                            video_urls.append(url_str)
 
-                # Find video elements and extract sources
-                video_sources = await page.evaluate("""
+                page.on("response", intercept_response)
+
+                await page.goto(str(url), wait_until="networkidle", timeout=30000)
+
+                # Wait a bit more for dynamic content and video to load
+                await asyncio.sleep(5)
+
+                # Also check DOM for video elements
+                dom_sources = await page.evaluate("""
                     () => {
                         const sources = [];
-                        // Direct video elements
                         document.querySelectorAll('video').forEach(v => {
-                            if (v.src) sources.push(v.src);
+                            if (v.src && !v.src.startsWith('blob:')) sources.push(v.src);
                             v.querySelectorAll('source').forEach(s => {
-                                if (s.src) sources.push(s.src);
+                                if (s.src && !s.src.startsWith('blob:')) sources.push(s.src);
                             });
                         });
-                        // Check for video in iframes
                         document.querySelectorAll('iframe').forEach(iframe => {
                             if (iframe.src) sources.push(iframe.src);
                         });
@@ -64,16 +74,40 @@ class DOMExtractorDownloader(IDownloader):
                     }
                 """)
 
+                # Also try to extract from meta tags / JSON-LD
+                meta_urls = await page.evaluate("""
+                    () => {
+                        const urls = [];
+                        const metas = document.querySelectorAll('meta[property="og:video"], meta[name="twitter:player:stream"]');
+                        metas.forEach(m => { if (m.content) urls.push(m.content); });
+                        return urls;
+                    }
+                """)
+
                 await browser.close()
 
-                if not video_sources:
+                # Collect all candidate URLs (network captures + DOM + meta tags)
+                all_candidates = video_urls + dom_sources + meta_urls
+
+                if not all_candidates:
                     return DownloadResult.failure(
-                        error="No video sources found in DOM",
+                        error="No video sources found in DOM or network traffic",
                         strategy=self.name,
                     )
 
                 import httpx
-                media_url = video_sources[0]
+                media_url = all_candidates[0]
+
+                # Handle protocol-relative URLs
+                if media_url.startswith("//"):
+                    media_url = f"https:{media_url}"
+
+                if not media_url.startswith(("http://", "https://")):
+                    return DownloadResult.failure(
+                        error=f"Invalid media URL format: {media_url[:100]}",
+                        strategy=self.name,
+                    )
+
                 output_path = output_dir / f"dom_video_{url.path.replace('/', '_')[-40:]}.mp4"
 
                 async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
