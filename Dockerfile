@@ -21,8 +21,12 @@ RUN apt-get update -qq && \
 
 # Copy and install Python dependencies
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[dev,vision]" 2>/dev/null || \
-    pip install --no-cache-dir fastapi uvicorn pydantic pydantic-settings httpx
+RUN pip install --no-cache-dir -e ".[dev,vision]" || \
+    pip install --no-cache-dir \
+        fastapi uvicorn[standard] pydantic pydantic-settings httpx \
+        structlog tenacity python-multipart \
+        openai google-generativeai anthropic ollama \
+        yt-dlp gallery-dl
 
 # Install yt-dlp and gallery-dl (required for video downloads)
 RUN pip install --no-cache-dir yt-dlp gallery-dl
