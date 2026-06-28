@@ -8,34 +8,14 @@ services:
   api:
     build:
       context: .
-      target: runner
     container_name: mie-api
     ports:
       - "8000:8000"
     env_file:
       - .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./data:/data
-      - ./src:/app/src:ro
-    depends_on:
-      redis:
-        condition: service_started
     restart: unless-stopped
-    networks:
-      - mie-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: mie-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    restart: unless-stopped
-    networks:
-      - mie-network
 
   # --- Celery Worker (futuro) ---
   # worker:
