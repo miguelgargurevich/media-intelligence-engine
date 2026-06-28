@@ -35,9 +35,13 @@ class GalleryDLDownloader(IDownloader):
                 "--directory", str(output_dir),
                 "--filename", "{title}_{id}.{extension}",
                 "--write-metadata",
-                "--cookies-from-browser", "chrome",
                 str(url),
             ]
+            # Use cookies file if available (mounted volume / cookies.txt)
+            cookies_path = Path("/app/cookies.txt")
+            if cookies_path.exists():
+                cmd.insert(1, "--cookies")
+                cmd.insert(2, str(cookies_path))
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,
