@@ -8,6 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Clean Architecture](https://img.shields.io/badge/Architecture-Clean-red)](https://blog.cleancoder.com/uncle-bob/2012/08/13/the-clean-architecture.html)
+[![Deploy](https://img.shields.io/badge/Deploy-Production-brightgreen)](https://mie.gargurevich.dev)
 
 ---
 
