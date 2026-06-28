@@ -12,7 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update -qq && \
-    apt-get install -y -qq --no-install-recommends ffmpeg curl && \
+    apt-get install -y -qq --no-install-recommends \
+        ffmpeg curl \
+        libgl1-mesa-glx libglib2.0-0 \
+        && \
     rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
@@ -21,6 +24,7 @@ RUN pip install --no-cache-dir -e ".[dev,vision]" 2>/dev/null || \
         fastapi uvicorn[standard] pydantic pydantic-settings httpx \
         structlog tenacity python-multipart opencv-python-headless \
         yt-dlp gallery-dl
+RUN pip install --no-cache-dir openai-whisper
 
 COPY src/ ./src/
 
