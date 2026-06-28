@@ -28,6 +28,12 @@ COPY src/ ./src/
 
 RUN mkdir -p /data/downloads /data/recordings /data/output /data/temp
 
+# Ensure whisper can download models
+ENV WHISPER_CACHE_DIR=/app/whisper-cache
+ENV XDG_CACHE_HOME=/app/cache
+
+RUN mkdir -p /app/whisper-cache /app/cache /data/downloads /data/recordings /data/output /data/temp
+
 RUN addgroup --system --gid 1001 app && \
     adduser --system --uid 1001 --gid 1001 app && \
     chown -R app:app /data /app
