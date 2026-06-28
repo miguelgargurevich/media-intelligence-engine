@@ -19,7 +19,7 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e ".[dev,vision]" 2>/dev/null || \
     pip install --no-cache-dir \
         fastapi uvicorn[standard] pydantic pydantic-settings httpx \
-        structlog tenacity python-multipart \
+        structlog tenacity python-multipart opencv-python-headless \
         yt-dlp gallery-dl
 
 COPY src/ ./src/
