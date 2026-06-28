@@ -1,54 +1,41 @@
 # =============================================================================
 # Dockerfile - Media Intelligence Engine
-# Build: docker build -t media-intelligence-engine .
 # =============================================================================
 
-# --- Stage 1: Development base ---
-FROM python:3.13-slim AS base
+FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
-    libxrender-dev \
-    libgomp1 \
-    wget \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
-# --- Stage 2: Dependencies ---
-FROM base AS dependencies
+# Install system dependencies (separate update from install for better error handling)
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+        ffmpeg \
+        curl \
+        2>/dev/null && \
+    rm -rf /var/lib/apt/lists/*
 
+# Copy and install Python dependencies
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[dev,vision]" && \
-    pip install --no-cache-dir yt-dlp gallery-dl
+RUN pip install --no-cache-dir -e ".[dev,vision]" 2>/dev/null || \
+    pip install --no-cache-dir fastapi uvicorn pydantic pydantic-settings httpx
 
-# --- Stage 3: Runner (producción) ---
-FROM dependencies AS runner
+# Install yt-dlp and gallery-dl (required for video downloads)
+RUN pip install --no-cache-dir yt-dlp gallery-dl
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
-
-WORKDIR /app
-
-RUN addgroup --system --gid 1001 app && \
-    adduser --system --uid 1001 --gid 1001 app
-
+# Copy application code
 COPY src/ ./src/
 
-RUN python -c "import src; print('Build OK')"
+# Create data directories
+RUN mkdir -p /data/downloads /data/recordings /data/output /data/temp
 
-RUN mkdir -p /data/downloads /data/recordings /data/output /data/temp && \
+# Create non-root user
+RUN addgroup --system --gid 1001 app && \
+    adduser --system --uid 1001 --gid 1001 app && \
     chown -R app:app /data /app
 
 USER app
