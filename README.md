@@ -165,12 +165,22 @@ URL ──→ ┌────────── NIVEL 1 ────────
 
 ### Vision Providers Soportados
 
+El pipeline prueba proveedores en orden hasta que uno funciona:
+
+1. **OpenAI GPT-4o** (default) → `openai`
+2. **Google Gemini** → `gemini`
+3. **DeepSeek VL** → `deepseek` (OpenAI-compatible API)
+4. **Qwen VL** → `qwen` (Alibaba Cloud)
+5. **Claude** → `anthropic`
+6. **Ollama (local)** → `ollama`
+
 | Proveedor | SDK | Modelo por defecto |
 |-----------|-----|-------------------|
 | OpenAI GPT | `openai` | `gpt-4o` |
 | Google Gemini | `google-generativeai` | `gemini-1.5-pro` |
+| DeepSeek VL | `httpx` (API directa) | `deepseek-vl2` |
+| Qwen VL | `httpx` (API directa) | `qwen-vl-max` |
 | Anthropic Claude | `anthropic` | `claude-3-5-sonnet` |
-| Qwen VL | `dashscope` | `qwen-vl-max` |
 | Ollama (local) | `ollama` | `llama3.2-vision` |
 
 ---
