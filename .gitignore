@@ -1,0 +1,90 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+env/
+*.venv
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/downloads/*
+data/recordings/*
+data/output/*
+data/temp/*
+!data/downloads/.gitkeep
+!data/recordings/.gitkeep
+!data/output/.gitkeep
+!data/temp/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Docker
+.docker/
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+coverage.xml
+
+# Mypy
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# Playwright browsers (cached)
+ms-playwright/
+
+# FFmpeg temp files
+*.ffconcat
+*.concat
+
+# Whisper models
+~/.cache/whisper/
+
+# PaddleOCR models
+~/.paddleocr/
+
+# Media files
+*.mp4
+*.wav
+*.flac
+*.opus
+*.webm
+*.mkv
+*.avi
+*.mov
+*.jpg
+*.jpeg
+*.png
+*.webp
+
+# Keep directory structure
+.gitkeep

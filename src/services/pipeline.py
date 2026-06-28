@@ -1,0 +1,442 @@
+"""Pipeline orchestrator - coordinates the entire analysis workflow."""
+
+import asyncio
+from pathlib import Path
+from typing import Optional
+
+from src.domain.entities.analysis import AnalysisResult
+from src.domain.entities.media import Media, FrameCollection, AudioTrack
+from src.domain.enums.media_type import MediaType, PipelineStatus, DownloadStrategy
+from src.domain.value_objects.url import URL
+from src.domain.value_objects.timestamp import TimelineEntry
+from src.infrastructure.config.settings import settings
+from src.infrastructure.config.logging_config import get_logger
+from src.infrastructure.downloaders.yt_dlp_downloader import YTDLPDownloader
+from src.infrastructure.downloaders.gallery_dl_downloader import GalleryDLDownloader
+from src.infrastructure.downloaders.html_extractor import HTMLExtractorDownloader
+from src.infrastructure.downloaders.dom_extractor import DOMExtractorDownloader
+from src.infrastructure.recorder.ffmpeg_recorder import FFmpegScreenRecorder
+from src.infrastructure.ocr.paddle_ocr_engine import PaddleOCREngine
+from src.infrastructure.speech.whisper_stt import WhisperSTT
+from src.infrastructure.storage.local_storage import LocalStorage
+from src.infrastructure.vision.gpt_vision import GPTVisionProvider
+from src.ports.downloader import IDownloader, DownloadResult
+
+logger = get_logger(__name__)
+
+
+class Pipeline:
+    """Main analysis pipeline that orchestrates the entire workflow."""
+
+    def __init__(self) -> None:
+        self.downloaders: list[IDownloader] = [
+            YTDLPDownloader(),
+            GalleryDLDownloader(),
+            HTMLExtractorDownloader(),
+            DOMExtractorDownloader(),
+        ]
+        self.recorder = FFmpegScreenRecorder()
+        self.ocr = PaddleOCREngine()
+        self.stt = WhisperSTT()
+        self.vision = GPTVisionProvider()
+        self.storage = LocalStorage()
+
+    async def run(self, url_str: str, **kwargs) -> AnalysisResult:
+        """Execute the complete analysis pipeline for a given URL.
+
+        Args:
+            url_str: The URL to analyze.
+            **kwargs: Override settings (fps, language, vision_provider, etc.).
+
+        Returns:
+            AnalysisResult with all extracted knowledge.
+        """
+        result = AnalysisResult(source_url=url_str)
+        url = URL.from_string(url_str)
+
+        try:
+            # Phase 1: Download media
+            result.status = PipelineStatus.DOWNLOADING.value
+            media = await self._download_media(url, result)
+            if not media or not media.file_path:
+                # Phase 2: Try recording as fallback
+                result.status = PipelineStatus.RECORDING.value
+                media = await self._record_media(url, result)
+                if not media or not media.file_path:
+                    result.status = PipelineStatus.FAILED.value
+                    result.error = "Could not obtain media from URL"
+                    return result
+
+            result.title = media.title
+            result.description = media.description
+            result.duration = media.duration
+            result.language = media.language or settings.default_language
+
+            # Phase 3: Extract frames
+            result.status = PipelineStatus.EXTRACTING_FRAMES.value
+            fps = kwargs.get("fps", settings.default_fps)
+            frames = await self._extract_frames(media, fps=fps)
+
+            # Phase 4: OCR on frames
+            result.status = PipelineStatus.RUNNING_OCR.value
+            await self._run_ocr_on_frames(frames)
+
+            # Phase 5: Extract and transcribe audio
+            result.status = PipelineStatus.EXTRACTING_AUDIO.value
+            if media.file_path:
+                audio = await self._extract_audio(media)
+                if audio:
+                    result.status = PipelineStatus.TRANSCRIBING.value
+                    transcription = await self._transcribe_audio(audio, language=media.language)
+                    result.transcript = transcription.text
+                    result.transcript_segments = [s.to_dict() for s in transcription.segments]
+
+            # Phase 6: Vision analysis on key frames
+            result.status = PipelineStatus.ANALYZING_VISION.value
+            await self._analyze_frames_vision(frames)
+
+            # Phase 7: Fuse all results
+            result.status = PipelineStatus.FUSING.value
+            result = await self._fuse_results(result, media, frames)
+
+            result.status = PipelineStatus.COMPLETED.value
+
+        except Exception as exc:
+            logger.error("Pipeline failed", error=str(exc))
+            result.status = PipelineStatus.FAILED.value
+            result.error = str(exc)
+
+        return result
+
+    async def _download_media(self, url: URL, result: AnalysisResult) -> Optional[Media]:
+        """Try each downloader in sequence until one succeeds."""
+        for downloader in self.downloaders:
+            try:
+                dl_result: DownloadResult = await downloader.download(
+                    url,
+                    settings.download_dir,
+                )
+                if dl_result.success and dl_result.file_path:
+                    media = Media(
+                        source_url=url,
+                        media_type=MediaType.VIDEO,
+                        file_path=dl_result.file_path,
+                        title=dl_result.title,
+                        duration=dl_result.duration,
+                        width=dl_result.width,
+                        height=dl_result.height,
+                    )
+                    logger.info("Media downloaded", strategy=downloader.name, path=str(dl_result.file_path))
+                    return media
+                logger.warning("Downloader failed", strategy=downloader.name, error=dl_result.error)
+            except Exception as exc:
+                logger.warning("Downloader error", strategy=downloader.name, error=str(exc))
+                continue
+        return None
+
+    async def _record_media(self, url: URL, result: AnalysisResult) -> Optional[Media]:
+        """Fallback: record screen while playing media."""
+        output_path = settings.recording_dir / f"recording_{url.path.replace('/', '_')[-40:]}.mp4"
+        recording = await self.recorder.record(
+            url=str(url),
+            output_path=output_path,
+            duration=settings.max_duration_seconds,
+        )
+        if recording.success and recording.file_path:
+            return Media(
+                source_url=url,
+                media_type=MediaType.VIDEO,
+                file_path=recording.file_path,
+                duration=recording.duration,
+            )
+        return None
+
+    async def _extract_frames(self, media: Media, fps: float = 1.0) -> FrameCollection:
+        """Extract frames from video using OpenCV."""
+        import cv2
+
+        collection = FrameCollection(fps=fps, source_duration=media.duration)
+        if not media.file_path:
+            return collection
+
+        cap = cv2.VideoCapture(str(media.file_path))
+        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_interval = max(1, int(video_fps / fps))
+
+        frame_idx = 0
+        saved_idx = 0
+        frames_dir = settings.temp_dir / "frames"
+        frames_dir.mkdir(parents=True, exist_ok=True)
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            if frame_idx % frame_interval == 0:
+                timestamp = frame_idx / video_fps
+                frame_path = frames_dir / f"frame_{saved_idx:06d}.jpg"
+                cv2.imwrite(str(frame_path), frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+
+                from src.domain.entities.media import Frame
+                collection.add_frame(
+                    Frame(
+                        index=saved_idx,
+                        timestamp=timestamp,
+                        file_path=frame_path,
+                        width=frame.shape[1],
+                        height=frame.shape[0],
+                    )
+                )
+                saved_idx += 1
+
+                if saved_idx >= settings.max_frames:
+                    break
+
+            frame_idx += 1
+
+        cap.release()
+        logger.info("Frames extracted", count=collection.total_frames)
+        return collection
+
+    async def _run_ocr_on_frames(self, frames: FrameCollection) -> None:
+        """Run OCR on all extracted frames."""
+        for frame in frames.frames:
+            ocr_result = await self.ocr.extract_text(
+                frame.file_path,
+                language=settings.default_language,
+            )
+            if ocr_result.success:
+                frame.ocr_text = ocr_result.full_text
+
+    async def _extract_audio(self, media: Media) -> Optional[AudioTrack]:
+        """Extract audio from video using FFmpeg."""
+        import subprocess
+        import json
+
+        if not media.file_path:
+            return None
+
+        audio_path = settings.temp_dir / f"audio_{media.file_path.stem}.wav"
+
+        cmd = [
+            settings.ffmpeg_path,
+            "-i", str(media.file_path),
+            "-vn",  # No video
+            "-acodec", "pcm_s16le",  # PCM 16-bit
+            "-ar", "16000",  # 16kHz sample rate
+            "-ac", "1",  # Mono
+            "-y",
+            str(audio_path),
+        ]
+
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await process.communicate()
+
+        if audio_path.exists():
+            duration = media.duration or 0
+            return AudioTrack(
+                file_path=audio_path,
+                duration=duration,
+                sample_rate=16000,
+                channels=1,
+                format="wav",
+            )
+        return None
+
+    async def _transcribe_audio(self, audio: AudioTrack, language: Optional[str] = None) -> "TranscriptionResult":
+        """Transcribe audio using Whisper."""
+        from src.ports.speech_to_text import TranscriptionResult
+        transcription = await self.stt.transcribe(
+            audio.file_path,
+            language=language or settings.default_language,
+            model=settings.whisper_model,
+        )
+        return transcription
+
+    async def _analyze_frames_vision(self, frames: FrameCollection) -> None:
+        """Run vision analysis on key frames (subset to save cost)."""
+        key_frames = frames.key_frames
+        analyses = await self.vision.analyze_images_batch(
+            [f.file_path for f in key_frames],
+        )
+        for frame, analysis in zip(key_frames, analyses):
+            if analysis.success:
+                frame.vision_description = analysis.description
+
+    async def _fuse_results(
+        self,
+        result: AnalysisResult,
+        media: Media,
+        frames: FrameCollection,
+    ) -> AnalysisResult:
+        """Merge all extracted data into structured result."""
+        all_commands: list[str] = []
+        all_code_blocks: list[dict] = []
+        all_urls: list[str] = []
+        all_technologies: list[str] = []
+        all_keywords: list[str] = []
+
+        for frame in frames.frames:
+            entry = TimelineEntry(
+                timestamp=frame.timestamp,
+                ocr_text=frame.ocr_text,
+                vision_description=frame.vision_description,
+            )
+
+            # Extract items from OCR text
+            if frame.ocr_text:
+                lines = frame.ocr_text.strip().split("\n")
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Detect commands
+                    if any(line.startswith(c) for c in ["$ ", "npm ", "pip ", "git ", "docker ", "kubectl ", "ssh ", "curl "]):
+                        if line not in all_commands:
+                            all_commands.append(line)
+                            entry.commands.append(line)
+                    # Detect URLs
+                    import re
+                    url_matches = re.findall(r'https?://[^\s]+', line)
+                    for u in url_matches:
+                        if u not in all_urls:
+                            all_urls.append(u)
+                            entry.urls.append(u)
+                    # Detect code-like patterns
+                    if re.search(r'(def\s+\w+\s*\(|class\s+\w+|import\s+\w+|const\s+\w+\s*=|function\s+\w+)', line):
+                        code_entry = {"code": line, "language": None, "source": "ocr"}
+                        if code_entry not in all_code_blocks:
+                            all_code_blocks.append(code_entry)
+                            entry.code_blocks.append(line)
+
+            # Extract items from vision description
+            if frame.vision_description:
+                tech_keywords = [
+                    "python", "javascript", "typescript", "react", "vue", "angular",
+                    "docker", "kubernetes", "aws", "gcp", "azure", "node", "go",
+                    "rust", "sql", "nosql", "redis", "postgresql", "mongodb",
+                ]
+                desc_lower = frame.vision_description.lower()
+                for tech in tech_keywords:
+                    if tech in desc_lower and tech not in all_technologies:
+                        all_technologies.append(tech)
+                        entry.technologies.append(tech)
+
+            result.timeline.append(entry)
+
+        result.commands = all_commands
+        result.code_blocks = all_code_blocks
+        result.urls = all_urls
+        result.technologies = all_technologies
+        result.keywords = all_keywords
+
+        # Generate markdown summary
+        result.markdown = self._generate_markdown(result)
+        result.html = self._generate_html(result)
+        result.summary = self._generate_summary(result)
+        result.visual_summary = self._generate_visual_summary(frames)
+
+        return result
+
+    def _generate_markdown(self, result: AnalysisResult) -> str:
+        """Generate a markdown document from analysis results."""
+        md = []
+        md.append(f"# {result.title or 'Media Analysis'}")
+        md.append("")
+        if result.description:
+            md.append(f"_{result.description}_")
+            md.append("")
+        md.append(f"- **Duration:** {result.duration:.1f}s" if result.duration else "")
+        md.append(f"- **Language:** {result.language}" if result.language else "")
+        md.append("")
+
+        if result.transcript:
+            md.append("## Transcript")
+            md.append("")
+            md.append(result.transcript)
+            md.append("")
+
+        if result.commands:
+            md.append("## Commands")
+            md.append("")
+            md.append("```bash")
+            for cmd in result.commands:
+                md.append(cmd)
+            md.append("```")
+            md.append("")
+
+        if result.code_blocks:
+            md.append("## Code Blocks")
+            for block in result.code_blocks:
+                md.append("")
+                md.append(f"```{block.get('language', '')}")
+                md.append(block.get("code", ""))
+                md.append("```")
+
+        if result.urls:
+            md.append("## URLs")
+            for u in result.urls:
+                md.append(f"- {u}")
+
+        if result.technologies:
+            md.append("## Technologies")
+            for tech in result.technologies:
+                md.append(f"- {tech}")
+
+        return "\n".join(md)
+
+    def _generate_html(self, result: AnalysisResult) -> str:
+        """Generate a simple HTML document from analysis results."""
+        html = ["<!DOCTYPE html><html><head><meta charset='utf-8'>"]
+        html.append(f"<title>{result.title or 'Media Analysis'}</title>")
+        html.append("<style>body{font-family:sans-serif;max-width:800px;margin:auto;padding:20px}")
+        html.append("h1{color:#333}.section{margin:20px 0}pre{background:#f4f4f4;padding:10px;border-radius:5px}")
+        html.append("</style></head><body>")
+        html.append(f"<h1>{result.title or 'Media Analysis'}</h1>")
+        if result.description:
+            html.append(f"<p><em>{result.description}</em></p>")
+        if result.transcript:
+            html.append("<div class='section'><h2>Transcript</h2>")
+            html.append(f"<p>{result.transcript}</p></div>")
+        if result.commands:
+            html.append("<div class='section'><h2>Commands</h2><pre>")
+            html.append("\n".join(f"{c}" for c in result.commands))
+            html.append("</pre></div>")
+        if result.urls:
+            html.append("<div class='section'><h2>URLs</h2><ul>")
+            for u in result.urls:
+                html.append(f"<li><a href='{u}'>{u}</a></li>")
+            html.append("</ul></div>")
+        html.append("</body></html>")
+        return "\n".join(html)
+
+    def _generate_summary(self, result: AnalysisResult) -> str:
+        """Generate a text summary."""
+        parts = []
+        if result.title:
+            parts.append(f"Análisis de: {result.title}")
+        if result.commands:
+            parts.append(f"Se detectaron {len(result.commands)} comandos.")
+        if result.code_blocks:
+            parts.append(f"Se extrajeron {len(result.code_blocks)} bloques de código.")
+        if result.urls:
+            parts.append(f"Se encontraron {len(result.urls)} URLs.")
+        if result.technologies:
+            parts.append(f"Tecnologías identificadas: {', '.join(result.technologies)}.")
+        if result.transcript:
+            parts.append("Transcripción de audio disponible.")
+        return " ".join(parts) if parts else "No se pudo generar resumen."
+
+    def _generate_visual_summary(self, frames: FrameCollection) -> str:
+        """Generate a visual summary from key frame descriptions."""
+        descriptions = []
+        for f in frames.frames[:5]:  # First 5 key frames
+            if f.vision_description:
+                descriptions.append(f"[{f.timestamp:.1f}s] {f.vision_description[:200]}")
+        return "\n".join(descriptions) if descriptions else ""

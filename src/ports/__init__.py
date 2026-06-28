@@ -1,0 +1,1 @@
+"""Ports layer - Interfaces defining contracts for adapters."""

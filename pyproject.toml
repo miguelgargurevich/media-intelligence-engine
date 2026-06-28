@@ -1,0 +1,87 @@
+[project]
+name = "media-intelligence-engine"
+version = "0.1.0"
+description = "Microservicio para análisis automático de contenido multimedia"
+readme = "README.md"
+requires-python = ">=3.13"
+license = {text = "MIT"}
+authors = [
+    {name = "Media Intelligence Engine Contributors"},
+]
+
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.5.0",
+    "httpx>=0.28.0",
+    "playwright>=1.48.0",
+    "opencv-python>=4.10.0",
+    "openai-whisper>=20240930",
+    "paddlepaddle>=3.0.0",
+    "paddleocr>=2.9.0",
+    "yt-dlp>=2024.11.0",
+    "gallery-dl>=1.28.0",
+    "celery>=5.4.0",
+    "redis>=5.2.0",
+    "structlog>=24.4.0",
+    "prometheus-client>=0.21.0",
+    "opentelemetry-api>=1.28.0",
+    "opentelemetry-sdk>=1.28.0",
+    "python-multipart>=0.0.12",
+    "tenacity>=9.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.7.0",
+    "black>=24.10.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+]
+vision = [
+    "openai>=1.54.0",
+    "google-generativeai>=0.8.0",
+    "anthropic>=0.42.0",
+    "ollama>=0.4.0",
+]
+
+[project.scripts]
+mie = "src.__main__:main"
+
+[tool.black]
+line-length = 88
+target-version = ["py313"]
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "ANN", "ARG", "B", "C4", "SIM", "PL"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unused_configs = true
+ignore_missing_imports = true
+disallow_any_unimported = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["src.*"]

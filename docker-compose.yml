@@ -1,0 +1,140 @@
+# =============================================================================
+# docker-compose.yml - Media Intelligence Engine
+# =============================================================================
+
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: .
+      target: runner
+    container_name: mie-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data:/data
+      - ./src:/app/src:ro
+    depends_on:
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - mie-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mie-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - mie-network
+
+  # --- Celery Worker (futuro) ---
+  # worker:
+  #   build:
+  #     context: .
+  #     target: runner
+  #   container_name: mie-worker
+  #   command: celery -A src.infrastructure.celery_app worker --loglevel=info
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - ./data:/data
+  #     - ./src:/app/src:ro
+  #   depends_on:
+  #     - redis
+  #   restart: unless-stopped
+  #   networks:
+  #     - mie-network
+
+  # --- MinIO (futuro) ---
+  # minio:
+  #   image: minio/minio:latest
+  #   container_name: mie-minio
+  #   ports:
+  #     - "9000:9000"
+  #     - "9001:9001"
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   command: server /data --console-address ":9001"
+  #   volumes:
+  #     - minio-data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - mie-network
+
+  # --- PostgreSQL (futuro) ---
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: mie-postgres
+  #   ports:
+  #     - "5432:5432"
+  #   environment:
+  #     POSTGRES_USER: mie
+  #     POSTGRES_PASSWORD: mie
+  #     POSTGRES_DB: mie
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - mie-network
+
+  # --- Elasticsearch (futuro) ---
+  # elasticsearch:
+  #   image: elasticsearch:8.15.0
+  #   container_name: mie-elasticsearch
+  #   environment:
+  #     - discovery.type=single-node
+  #     - xpack.security.enabled=false
+  #   ports:
+  #     - "9200:9200"
+  #   volumes:
+  #     - es-data:/usr/share/elasticsearch/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - mie-network
+
+  # --- Qdrant (futuro) ---
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   container_name: mie-qdrant
+  #   ports:
+  #     - "6333:6333"
+  #   volumes:
+  #     - qdrant-data:/qdrant/storage
+  #   restart: unless-stopped
+  #   networks:
+  #     - mie-network
+
+  # --- OpenTelemetry Collector (futuro) ---
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:latest
+  #   container_name: mie-otel-collector
+  #   ports:
+  #     - "4318:4318"
+  #   volumes:
+  #     - ./otel-collector-config.yml:/etc/otel-collector-config.yml
+  #   command: ["--config=/etc/otel-collector-config.yml"]
+  #   restart: unless-stopped
+  #   networks:
+  #     - mie-network
+
+networks:
+  mie-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  # minio-data:
+  # postgres-data:
+  # es-data:
+  # qdrant-data:
