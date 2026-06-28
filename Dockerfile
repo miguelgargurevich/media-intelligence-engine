@@ -11,11 +11,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies (separate update from install for better error handling)
+# Install system dependencies
 RUN apt-get update -qq && \
     apt-get install -y -qq --no-install-recommends \
         ffmpeg \
         curl \
+        libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+        libcups2 libdrm2 libdbus-1-3 libexpat1 \
+        libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+        libgbm1 libpango-1.0-0 libcairo2 \
         2>/dev/null && \
     rm -rf /var/lib/apt/lists/*
 
@@ -24,12 +28,12 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir -e ".[dev,vision]" || \
     pip install --no-cache-dir \
         fastapi uvicorn[standard] pydantic pydantic-settings httpx \
-        structlog tenacity python-multipart \
+        structlog tenacity python-multipart playwright \
         openai google-generativeai anthropic ollama \
         yt-dlp gallery-dl
 
-# Install yt-dlp and gallery-dl (required for video downloads)
-RUN pip install --no-cache-dir yt-dlp gallery-dl
+# Install Playwright browsers (for DOM extraction fallback)
+RUN playwright install chromium 2>/dev/null || true
 
 # Copy application code
 COPY src/ ./src/
