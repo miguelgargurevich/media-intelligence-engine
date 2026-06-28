@@ -261,14 +261,76 @@ class Pipeline:
         return transcription
 
     async def _analyze_frames_vision(self, frames: FrameCollection) -> None:
-        """Run vision analysis on key frames (subset to save cost)."""
+        """Run vision analysis on key frames with fallback providers."""
         key_frames = frames.key_frames
-        analyses = await self.vision.analyze_images_batch(
-            [f.file_path for f in key_frames],
-        )
-        for frame, analysis in zip(key_frames, analyses):
-            if analysis.success:
-                frame.vision_description = analysis.description
+        if not key_frames:
+            return
+
+        # Try providers in order until one succeeds
+        vision_providers = await self._get_vision_providers()
+        last_analysis = None
+
+        for provider in vision_providers:
+            logger.info("Running vision analysis", provider=provider.provider_name)
+            analyses = await provider.analyze_images_batch(
+                [f.file_path for f in key_frames],
+            )
+            # Check if all analyses succeeded
+            if all(a.success for a in analyses):
+                for frame, analysis in zip(key_frames, analyses):
+                    if analysis.success:
+                        frame.vision_description = analysis.description
+                logger.info("Vision analysis completed", provider=provider.provider_name)
+                return
+
+            # Log failure and try next
+            failed_count = sum(1 for a in analyses if not a.success)
+            logger.warning(
+                "Vision provider failed",
+                provider=provider.provider_name,
+                failed=failed_count,
+            )
+            last_analysis = analyses
+
+        # All providers failed, log the last error
+        if last_analysis:
+            logger.error(
+                "All vision providers failed",
+                last_error=last_analysis[0].error if last_analysis else "unknown",
+            )
+
+    async def _get_vision_providers(self) -> list:
+        """Get list of vision providers based on configured API keys."""
+        from src.infrastructure.vision.gpt_vision import GPTVisionProvider
+        from src.infrastructure.vision.gemini_vision import GeminiVisionProvider
+        from src.infrastructure.vision.qwen_vision import QwenVisionProvider
+        from src.infrastructure.vision.deepseek_vision import DeepSeekVisionProvider
+
+        providers = []
+
+        # Always add the default first
+        if settings.default_vision_provider == "openai" and settings.openai_api_key:
+            providers.append(GPTVisionProvider())
+        elif settings.default_vision_provider == "gemini" and settings.gemini_api_key:
+            providers.append(GeminiVisionProvider())
+
+        # Add fallbacks in order
+        if settings.openai_api_key and not any(p.provider_name == "openai" for p in providers):
+            providers.append(GPTVisionProvider())
+        if settings.gemini_api_key and not any(p.provider_name == "gemini" for p in providers):
+            providers.append(GeminiVisionProvider())
+        if settings.deepseek_api_key:
+            providers.append(DeepSeekVisionProvider())
+        if settings.qwen_api_key:
+            providers.append(QwenVisionProvider())
+
+        if not providers:
+            logger.warning("No vision providers configured")
+            # Add a stub that always fails gracefully
+            from src.infrastructure.vision.gpt_vision import GPTVisionProvider
+            providers.append(GPTVisionProvider())
+
+        return providers
 
     async def _fuse_results(
         self,

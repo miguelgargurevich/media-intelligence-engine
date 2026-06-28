@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = None
     anthropic_model: str = "claude-3-5-sonnet-20241022"
 
+    deepseek_api_key: Optional[str] = None
+    deepseek_model: str = "deepseek-vl2"
+
     qwen_api_key: Optional[str] = None
     qwen_model: str = "qwen-vl-max"
 
