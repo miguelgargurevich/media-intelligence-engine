@@ -155,12 +155,13 @@ class Pipeline:
         """Extract frames from video using OpenCV."""
         import cv2
 
-        collection = FrameCollection(fps=fps, source_duration=media.duration)
+        fps = fps or 1.0  # Ensure fps is not None
+        collection = FrameCollection(fps=fps, source_duration=media.duration or 0)
         if not media.file_path:
             return collection
 
         cap = cv2.VideoCapture(str(media.file_path))
-        video_fps = cap.get(cv2.CAP_PROP_FPS)
+        video_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0  # Default if cannot detect
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         frame_interval = max(1, int(video_fps / fps))
 
