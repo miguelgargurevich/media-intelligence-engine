@@ -8,17 +8,32 @@ services:
   api:
     build:
       context: .
+    image: mie-api:latest
     container_name: mie-api
-    ports:
-      - "8000:8000"
     env_file:
       - .env
+    # Sin `ports`: el contenedor NO publica al host. Traefik (coolify-proxy)
+    # enruta mie.gargurevich.dev por la red interna `coolify`.
+    networks:
+      - coolify
     volumes:
       - ./data:/data
       # cookies.txt (Netscape) para descargas autenticadas (Instagram, YouTube, etc.).
       # Vive en la carpeta del repo en el VPS, NUNCA se commitea (ver .gitignore).
       # DEBE existir el archivo antes de `up`, si no Docker crea un directorio.
       - ./cookies.txt:/app/cookies.txt:ro
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - "traefik.http.routers.mie-http.rule=Host(`mie.gargurevich.dev`)"
+      - traefik.http.routers.mie-http.entryPoints=http
+      - traefik.http.routers.mie-http.middlewares=redirect-to-https
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - "traefik.http.routers.mie-https.rule=Host(`mie.gargurevich.dev`)"
+      - traefik.http.routers.mie-https.entryPoints=https
+      - traefik.http.routers.mie-https.tls=true
+      - traefik.http.routers.mie-https.tls.certresolver=letsencrypt
+      - traefik.http.services.mie-svc.loadbalancer.server.port=8000
     restart: unless-stopped
 
   # --- Celery Worker (futuro) ---
@@ -113,6 +128,9 @@ services:
   #     - mie-network
 
 networks:
+  # Red del proxy Traefik (coolify-proxy) gestionada fuera de este compose.
+  coolify:
+    external: true
   mie-network:
     driver: bridge
 

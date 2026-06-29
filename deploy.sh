@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy.sh — Despliega media-intelligence-engine al VPS.
+# deploy.sh — Despliega media-intelligence-engine al VPS (Traefik/coolify).
+#
+# El servicio se enruta vía el proxy Traefik existente (coolify-proxy) por la
+# red `coolify`; el docker-compose.yml ya trae los labels de Traefik y NO
+# publica puertos al host.
 #
 # Flujo:
 #   1. Sincroniza el repo en el VPS (clone/pull a REPO_DIR persistente).
-#   2. SIEMPRE copia el cookies.txt local al VPS (necesario para descargas
-#      autenticadas: Instagram, YouTube, etc.). El archivo NUNCA se commitea.
-#   3. Reconstruye y reinicia el contenedor con docker compose.
-#   4. Verifica /health.
+#   2. SIEMPRE copia el cookies.txt local al VPS (descargas autenticadas).
+#   3. Verifica que exista el .env en el VPS (secreto del servidor, no se copia).
+#   4. docker compose build (sin downtime) → recrea el contenedor → /health.
 #
 # Uso:
-#   ./deploy.sh                       # usa los defaults de abajo
+#   ./deploy.sh
 #   COOKIES=~/ruta/cookies.txt ./deploy.sh
 #
-# Requisitos: acceso SSH al VPS (host configurado en ~/.ssh/config).
+# Requisitos: acceso SSH al VPS (host en ~/.ssh/config) y .env ya presente en REPO_DIR.
 # =============================================================================
 set -euo pipefail
 
@@ -26,10 +29,9 @@ COOKIES="${COOKIES:-$HOME/Downloads/cookies.txt}"
 
 echo "▶ VPS=$VPS  REPO_DIR=$REPO_DIR  BRANCH=$BRANCH"
 
-# ── 0. Validar que las cookies existen localmente ────────────────────────────
+# ── 0. Validar cookies locales ───────────────────────────────────────────────
 if [[ ! -f "$COOKIES" ]]; then
   echo "✖ No se encontró el archivo de cookies: $COOKIES" >&2
-  echo "  Exporta tus cookies (formato Netscape) y vuelve a intentar, o pasa COOKIES=..." >&2
   exit 1
 fi
 echo "✓ Cookies locales: $COOKIES ($(wc -c < "$COOKIES") bytes)"
@@ -42,24 +44,35 @@ ssh "$VPS" "set -e
   else
     git clone --branch '$BRANCH' '$REPO_URL' '$REPO_DIR'
   fi
-  git -C '$REPO_DIR' rev-parse --short HEAD"
+  echo -n '  commit: '; git -C '$REPO_DIR' rev-parse --short HEAD"
 
-# ── 2. Copiar SIEMPRE las cookies (antes del compose up: el mount es de archivo)
+# ── 2. Copiar SIEMPRE las cookies (antes del up: el mount es de archivo) ──────
 echo "▶ Copiando cookies al VPS ($REPO_DIR/cookies.txt)..."
 scp "$COOKIES" "$VPS:$REPO_DIR/cookies.txt"
 ssh "$VPS" "chmod 600 '$REPO_DIR/cookies.txt'"
 echo "✓ Cookies copiadas"
 
-# ── 3. Build + restart con docker compose ────────────────────────────────────
-echo "▶ Reconstruyendo y reiniciando contenedor..."
-ssh "$VPS" "cd '$REPO_DIR' && docker compose up -d --build"
+# ── 3. Validar .env en el VPS (secreto del servidor, no se commitea ni copia) ─
+ssh "$VPS" "test -f '$REPO_DIR/.env'" || {
+  echo "✖ Falta $REPO_DIR/.env en el VPS (API keys). Copialo una vez:" >&2
+  echo "    scp tu/.env $VPS:$REPO_DIR/.env" >&2
+  exit 1
+}
 
-# ── 4. Health check ──────────────────────────────────────────────────────────
-echo "▶ Verificando /health..."
-ssh "$VPS" "for i in 1 2 3 4 5 6; do
-    if curl -sf http://localhost:8000/health >/dev/null; then echo '✓ Servicio OK'; exit 0; fi
+# ── 4. Build (sin downtime) → recrear contenedor → health ────────────────────
+echo "▶ Construyendo imagen (sin downtime)..."
+ssh "$VPS" "cd '$REPO_DIR' && docker compose build"
+
+echo "▶ Recreando contenedor..."
+ssh "$VPS" "cd '$REPO_DIR' && docker rm -f mie-api >/dev/null 2>&1 || true && docker compose up -d"
+
+echo "▶ Verificando /health (interno y público)..."
+ssh "$VPS" "for i in 1 2 3 4 5 6 7 8; do
+    if docker exec mie-api curl -sf http://localhost:8000/health >/dev/null 2>&1; then echo '  ✓ contenedor OK'; break; fi
     sleep 3
-  done
-  echo '✖ El servicio no respondió a /health' >&2; exit 1"
-
-echo "✅ Deploy completado: https://mie.gargurevich.dev/health"
+  done"
+if curl -sf --max-time 10 https://mie.gargurevich.dev/health >/dev/null; then
+  echo "✅ Deploy OK: https://mie.gargurevich.dev/health responde"
+else
+  echo "⚠ El endpoint público no respondió aún (Traefik puede tardar unos segundos)." >&2
+fi
