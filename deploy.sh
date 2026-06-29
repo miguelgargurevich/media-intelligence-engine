@@ -48,8 +48,10 @@ ssh "$VPS" "set -e
 
 # ── 2. Copiar SIEMPRE las cookies (antes del up: el mount es de archivo) ──────
 echo "▶ Copiando cookies al VPS ($REPO_DIR/cookies.txt)..."
+# El contenedor corre como uid 1001 (usuario 'app' del Dockerfile); el mount es
+# read-only, así que el archivo debe ser legible por ese uid.
 scp "$COOKIES" "$VPS:$REPO_DIR/cookies.txt"
-ssh "$VPS" "chmod 600 '$REPO_DIR/cookies.txt'"
+ssh "$VPS" "chown 1001:1001 '$REPO_DIR/cookies.txt' && chmod 600 '$REPO_DIR/cookies.txt'"
 echo "✓ Cookies copiadas"
 
 # ── 3. Validar .env en el VPS (secreto del servidor, no se commitea ni copia) ─
