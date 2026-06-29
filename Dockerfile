@@ -17,12 +17,14 @@ RUN apt-get update -qq && \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e ".[dev,vision]" 2>/dev/null || \
-    pip install --no-cache-dir \
-        fastapi uvicorn[standard] pydantic pydantic-settings httpx \
+# Lean runtime deps — NO torch/CUDA. Transcription runs on the Groq Whisper API
+# (GroqWhisperSTT, primary). `openai-whisper` is intentionally omitted: it pulled
+# in torch + the full NVIDIA CUDA stack (~3-4GB → 9GB image) that this CPU-only
+# VPS never uses. WhisperSTT degrades gracefully if `whisper` isn't importable.
+RUN pip install --no-cache-dir \
+        fastapi "uvicorn[standard]" pydantic pydantic-settings httpx \
         structlog tenacity python-multipart opencv-python-headless \
         yt-dlp gallery-dl
-RUN pip install --no-cache-dir openai-whisper
 
 COPY src/ ./src/
 
