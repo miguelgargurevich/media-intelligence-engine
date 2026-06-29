@@ -15,6 +15,10 @@ services:
       - .env
     volumes:
       - ./data:/data
+      # cookies.txt (Netscape) para descargas autenticadas (Instagram, YouTube, etc.).
+      # Vive en la carpeta del repo en el VPS, NUNCA se commitea (ver .gitignore).
+      # DEBE existir el archivo antes de `up`, si no Docker crea un directorio.
+      - ./cookies.txt:/app/cookies.txt:ro
     restart: unless-stopped
 
   # --- Celery Worker (futuro) ---

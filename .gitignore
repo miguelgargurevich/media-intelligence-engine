@@ -1,3 +1,7 @@
+# Secrets / credentials — NUNCA commitear
+cookies.txt
+*.cookies
+
 # Python
 __pycache__/
 *.py[cod]
