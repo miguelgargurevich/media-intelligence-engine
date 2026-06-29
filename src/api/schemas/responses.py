@@ -55,6 +55,21 @@ class AnalyzeResponse(BaseModel):
     markdown: Optional[str] = Field(None, description="Full analysis in Markdown format")
     html: Optional[str] = Field(None, description="Full analysis in HTML format")
 
+    # Semantic enrichment (Phase 8 - LLM cascade)
+    sentiment: Optional[str] = Field(None, description="POSITIVE | NEUTRAL | NEGATIVE")
+    topic_type: Optional[str] = Field(None, description="tutorial | reunion | presentacion | demo | podcast | entrevista | short | otro")
+    chapters: list[dict] = Field(default_factory=list, description="Content chapters with timestamps")
+    highlights: list[dict] = Field(default_factory=list, description="Key highlight quotes")
+    participants: list[str] = Field(default_factory=list, description="Detected participants")
+    tasks: list[dict] = Field(default_factory=list, description="Extracted tasks with assignee and priority")
+    agreements: list[dict] = Field(default_factory=list, description="Agreements and commitments")
+    risks: list[dict] = Field(default_factory=list, description="Identified risks with impact")
+    open_questions: list[str] = Field(default_factory=list, description="Unresolved questions")
+    next_steps: list[str] = Field(default_factory=list, description="Action items and next steps")
+    hashtags: list[str] = Field(default_factory=list, description="Relevant hashtags")
+    follow_up_email: Optional[dict] = Field(None, description="Suggested follow-up email with subject and body")
+    diagrams: list[dict] = Field(default_factory=list, description="Mermaid diagrams")
+
 
 class HealthResponse(BaseModel):
     """Response body for GET /health."""
