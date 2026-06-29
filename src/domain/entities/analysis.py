@@ -49,6 +49,21 @@ class AnalysisResult:
     raw_ocr_texts: list[str] = field(default_factory=list)
     raw_vision_descriptions: list[str] = field(default_factory=list)
 
+    # 📌 Semantic enrichment (LLM-powered)
+    sentiment: Optional[str] = None           # POSITIVE | NEUTRAL | NEGATIVE
+    topic_type: Optional[str] = None          # tutorial, reunion, presentacion, etc.
+    chapters: list[dict] = field(default_factory=list)
+    highlights: list[dict] = field(default_factory=list)
+    participants: list[str] = field(default_factory=list)
+    tasks: list[dict] = field(default_factory=list)
+    agreements: list[dict] = field(default_factory=list)
+    risks: list[dict] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+    next_steps: list[str] = field(default_factory=list)
+    hashtags: list[str] = field(default_factory=list)
+    follow_up_email: Optional[dict] = None
+    diagrams: list[dict] = field(default_factory=list)
+
     @property
     def is_complete(self) -> bool:
         """Check if the analysis completed successfully."""
@@ -99,4 +114,18 @@ class AnalysisResult:
             "summary": self.summary,
             "markdown": self.markdown,
             "html": self.html,
+            # 📌 Semantic enrichment
+            "sentiment": self.sentiment,
+            "topicType": self.topic_type,
+            "chapters": self.chapters,
+            "highlights": self.highlights,
+            "participants": self.participants,
+            "tasks": self.tasks,
+            "agreements": self.agreements,
+            "risks": self.risks,
+            "openQuestions": self.open_questions,
+            "nextSteps": self.next_steps,
+            "hashtags": self.hashtags,
+            "followUpEmail": self.follow_up_email,
+            "diagrams": self.diagrams,
         }

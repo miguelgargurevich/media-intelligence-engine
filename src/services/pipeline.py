@@ -20,6 +20,7 @@ from src.infrastructure.ocr.paddle_ocr_engine import PaddleOCREngine
 from src.infrastructure.speech.whisper_stt import WhisperSTT
 from src.infrastructure.storage.local_storage import LocalStorage
 from src.infrastructure.vision.gpt_vision import GPTVisionProvider
+from src.services.semantic_analyzer import enrich_semantics
 from src.ports.downloader import IDownloader, DownloadResult
 
 logger = get_logger(__name__)
@@ -98,6 +99,47 @@ class Pipeline:
             # Phase 7: Fuse all results
             result.status = PipelineStatus.FUSING.value
             result = await self._fuse_results(result, media, frames)
+
+            # Phase 8: Semantic enrichment (LLM cascade: DeepSeek → Gemini → Groq)
+            if result.transcript:
+                logger.info("Starting semantic enrichment (LLM cascade)...")
+                try:
+                    timeline_dicts = [
+                        {
+                            "timestamp": entry.timestamp,
+                            "text": entry.text,
+                            "ocr_text": entry.ocr_text,
+                            "vision_description": entry.vision_description,
+                        }
+                        for entry in result.timeline
+                    ]
+                    semantics = await enrich_semantics(
+                        transcript=result.transcript,
+                        title=result.title or "",
+                        timeline=timeline_dicts,
+                    )
+                    # Map semantic fields to result
+                    result.sentiment = semantics.get("sentiment")
+                    result.topic_type = semantics.get("topicType")
+                    result.chapters = semantics.get("chapters", [])
+                    result.highlights = semantics.get("highlights", [])
+                    result.participants = semantics.get("participants", [])
+                    result.tasks = semantics.get("tasks", [])
+                    result.agreements = semantics.get("agreements", [])
+                    result.risks = semantics.get("risks", [])
+                    result.open_questions = semantics.get("openQuestions", [])
+                    result.next_steps = semantics.get("nextSteps", [])
+                    result.hashtags = semantics.get("hashtags", [])
+                    result.follow_up_email = semantics.get("followUpEmail")
+                    result.diagrams = semantics.get("diagrams", [])
+                    # Override/extend summaries with LLM-generated ones
+                    if semantics.get("markdown"):
+                        result.markdown = semantics["markdown"]
+                    if semantics.get("html"):
+                        result.html = semantics["html"]
+                    logger.info("Semantic enrichment completed")
+                except Exception as exc:
+                    logger.warning("Semantic enrichment failed", error=str(exc))
 
             result.status = PipelineStatus.COMPLETED.value
 

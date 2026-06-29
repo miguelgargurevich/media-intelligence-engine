@@ -75,6 +75,15 @@ class Settings(BaseSettings):
 
     default_vision_provider: str = "openai"
 
+    # --- Semantic Analysis (LLM cascada) ---
+    deepseek_llm_api_key: Optional[str] = None
+    deepseek_llm_model: str = "deepseek-chat"
+
+    groq_api_key: Optional[str] = None
+    groq_llm_model: str = "llama-3.3-70b-versatile"
+
+    semantic_timeout_seconds: int = 300  # 5 min por proveedor
+
     # --- Storage ---
     storage_backend: str = "local"
     s3_endpoint: Optional[str] = None
