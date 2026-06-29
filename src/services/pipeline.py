@@ -132,11 +132,24 @@ class Pipeline:
                     result.hashtags = semantics.get("hashtags", [])
                     result.follow_up_email = semantics.get("followUpEmail")
                     result.diagrams = semantics.get("diagrams", [])
+                    # Keywords from LLM cuando la extracción (OCR) no encontró ninguno
+                    llm_keywords = semantics.get("keywords")
+                    if llm_keywords and not result.keywords:
+                        result.keywords = llm_keywords
                     # Override/extend summaries with LLM-generated ones
                     if semantics.get("markdown"):
                         result.markdown = semantics["markdown"]
                     if semantics.get("html"):
                         result.html = semantics["html"]
+                    # Summary ejecutivo del LLM (lista de puntos) reemplaza el fallback básico
+                    llm_summary = semantics.get("summary")
+                    if isinstance(llm_summary, list) and llm_summary:
+                        result.summary = "\n".join(f"- {s}" for s in llm_summary if s)
+                    elif isinstance(llm_summary, str) and llm_summary.strip():
+                        result.summary = llm_summary.strip()
+                    # Derivar título del H1 del markdown si el extractor no entregó uno (ej: reels)
+                    if not result.title:
+                        result.title = self._derive_title(result)
                     logger.info("Semantic enrichment completed")
                 except Exception as exc:
                     logger.warning("Semantic enrichment failed", error=str(exc))
@@ -520,6 +533,22 @@ class Pipeline:
             html.append("</ul></div>")
         html.append("</body></html>")
         return "\n".join(html)
+
+    def _derive_title(self, result: AnalysisResult) -> str:
+        """Derive a title when the source provided none (e.g. Instagram reels).
+
+        Prioriza el primer encabezado H1 del markdown del LLM; si no hay,
+        usa el título del primer capítulo.
+        """
+        for line in (result.markdown or "").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("# "):
+                return stripped[2:].strip()
+        if result.chapters:
+            first = result.chapters[0]
+            if isinstance(first, dict) and first.get("title"):
+                return str(first["title"]).strip()
+        return ""
 
     def _generate_summary(self, result: AnalysisResult) -> str:
         """Generate a text summary."""
