@@ -27,6 +27,7 @@ Tu tarea es:
 6. Responde SIEMPRE en español y SOLO el JSON, sin texto adicional"""
 
 UNIVERSAL_JSON_SHAPE = """{
+  "title": string,               // título conciso y descriptivo (máx 80 chars) SIEMPRE
   "summary": string[],           // 5-10 puntos ejecutivos SIEMPRE
   "sentiment": "POSITIVE"|"NEUTRAL"|"NEGATIVE",  // SIEMPRE
   "topicType": "tutorial"|"reunion"|"presentacion"|"demo"|"podcast"|"entrevista"|"short"|"otro",
@@ -172,6 +173,7 @@ Analiza la siguiente transcripción y devuelve EXCLUSIVAMENTE un objeto JSON con
 {UNIVERSAL_JSON_SHAPE}
 
 Reglas IMPORTANTES:
+- "title": título corto y descriptivo del contenido (máx 80 caracteres), en español, sin comillas ni emojis.
 - "summary": máximo 10 puntos ejecutivos, cada uno una frase.
 - "topicType": detecta el tipo de contenido automáticamente
 - Extrae campos condicionales SOLO si aparecen explícita o implícitamente
@@ -231,6 +233,7 @@ TRANSCRIPCIÓN:
 
 def _empty_semantics(reason: str = "") -> dict:
     return {
+        "title": "",
         "summary": [reason or "No se pudo analizar el contenido"],
         "sentiment": "NEUTRAL",
         "topicType": "otro",

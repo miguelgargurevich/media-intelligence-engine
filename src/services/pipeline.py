@@ -121,6 +121,10 @@ class Pipeline:
                         timeline=timeline_dicts,
                     )
                     # Map semantic fields to result
+                    # Use LLM-generated title when the source had no metadata title
+                    # (e.g. Instagram reels): avoids generic "MIE Analysis" downstream.
+                    if not result.title and semantics.get("title"):
+                        result.title = semantics["title"]
                     result.sentiment = semantics.get("sentiment")
                     result.topic_type = semantics.get("topicType")
                     result.chapters = semantics.get("chapters", [])
