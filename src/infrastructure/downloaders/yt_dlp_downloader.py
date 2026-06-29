@@ -42,8 +42,13 @@ class YTDLPDownloader(IDownloader):
                 "--print", "height",
                 "-o", output_template,
                 "--max-filesize", "500M",
-                str(url),
             ]
+
+            cookies_path = Path("/app/cookies.txt")
+            if cookies_path.exists():
+                cmd += ["--cookies", str(cookies_path)]
+
+            cmd.append(str(url))
 
             process = await asyncio.create_subprocess_exec(
                 *cmd,
