@@ -81,6 +81,10 @@ class Settings(BaseSettings):
 
     groq_api_key: Optional[str] = None
     groq_llm_model: str = "llama-3.3-70b-versatile"
+    groq_whisper_model: str = "whisper-large-v3-turbo"
+
+    # Transcription provider: "auto" (Groq if key present, else local), "groq", "local"
+    transcription_provider: str = "auto"
 
     semantic_timeout_seconds: int = 300  # 5 min por proveedor
 

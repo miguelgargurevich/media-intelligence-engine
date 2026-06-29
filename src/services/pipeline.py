@@ -18,6 +18,7 @@ from src.infrastructure.downloaders.dom_extractor import DOMExtractorDownloader
 from src.infrastructure.recorder.ffmpeg_recorder import FFmpegScreenRecorder
 from src.infrastructure.ocr.paddle_ocr_engine import PaddleOCREngine
 from src.infrastructure.speech.whisper_stt import WhisperSTT
+from src.infrastructure.speech.groq_whisper_stt import GroqWhisperSTT
 from src.infrastructure.storage.local_storage import LocalStorage
 from src.infrastructure.vision.gpt_vision import GPTVisionProvider
 from src.services.semantic_analyzer import enrich_semantics
@@ -38,7 +39,8 @@ class Pipeline:
         ]
         self.recorder = FFmpegScreenRecorder()
         self.ocr = PaddleOCREngine()
-        self.stt = WhisperSTT()
+        self.stt = WhisperSTT()          # local fallback
+        self.groq_stt = GroqWhisperSTT()  # cloud primary (same engine as meetings)
         self.vision = GPTVisionProvider()
         self.storage = LocalStorage()
 
@@ -274,13 +276,16 @@ class Pipeline:
         if not media.file_path:
             return None
 
-        audio_path = settings.temp_dir / f"audio_{media.file_path.stem}.wav"
+        # Compressed mp3 mono 16kHz: small enough for the Groq 25MB upload limit
+        # (~0.48 MB/min → ~50 min) and read fine by local Whisper as fallback.
+        audio_path = settings.temp_dir / f"audio_{media.file_path.stem}.mp3"
 
         cmd = [
             settings.ffmpeg_path,
             "-i", str(media.file_path),
             "-vn",  # No video
-            "-acodec", "pcm_s16le",  # PCM 16-bit
+            "-acodec", "libmp3lame",
+            "-b:a", "64k",  # 64 kbps — ample for speech
             "-ar", "16000",  # 16kHz sample rate
             "-ac", "1",  # Mono
             "-y",
@@ -301,19 +306,37 @@ class Pipeline:
                 duration=duration,
                 sample_rate=16000,
                 channels=1,
-                format="wav",
+                format="mp3",
             )
         return None
 
     async def _transcribe_audio(self, audio: AudioTrack, language: Optional[str] = None) -> "TranscriptionResult":
-        """Transcribe audio using Whisper."""
-        from src.ports.speech_to_text import TranscriptionResult
-        transcription = await self.stt.transcribe(
+        """Transcribe audio with Groq Whisper (cloud) primary, local Whisper fallback.
+
+        Provider selection via settings.transcription_provider:
+          - "auto"  : Groq if GROQ_API_KEY set, else local; falls back to local on Groq failure
+          - "groq"  : Groq only (no fallback)
+          - "local" : local Whisper only
+        """
+        lang = language or settings.default_language
+        provider = (settings.transcription_provider or "auto").lower()
+
+        use_groq = provider in ("auto", "groq") and bool(settings.groq_api_key)
+        if use_groq:
+            logger.info("Transcribing via Groq Whisper", model=settings.groq_whisper_model)
+            result = await self.groq_stt.transcribe(audio.file_path, language=lang)
+            if result.success:
+                return result
+            logger.warning("Groq Whisper failed", error=result.error)
+            if provider == "groq":
+                return result  # explicit groq-only: no fallback
+
+        logger.info("Transcribing via local Whisper", model=settings.whisper_model)
+        return await self.stt.transcribe(
             audio.file_path,
-            language=language or settings.default_language,
+            language=lang,
             model=settings.whisper_model,
         )
-        return transcription
 
     async def _analyze_frames_vision(self, frames: FrameCollection) -> None:
         """Run vision analysis on key frames with fallback providers."""
