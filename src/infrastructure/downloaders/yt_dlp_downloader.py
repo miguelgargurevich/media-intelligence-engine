@@ -1,6 +1,9 @@
 """yt-dlp-based downloader implementation."""
 
 import asyncio
+import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -44,9 +47,16 @@ class YTDLPDownloader(IDownloader):
                 "--max-filesize", "500M",
             ]
 
+            # yt-dlp reescribe el cookie jar al terminar; el archivo /app/cookies.txt
+            # está montado READ-ONLY, así que escribir ahí lanza PermissionError y
+            # tumba la descarga. Copiamos a una ruta escribible y usamos esa copia.
             cookies_path = Path("/app/cookies.txt")
+            cookies_tmp = None
             if cookies_path.exists():
-                cmd += ["--cookies", str(cookies_path)]
+                fd, cookies_tmp = tempfile.mkstemp(prefix="ytck_", suffix=".txt")
+                os.close(fd)
+                shutil.copy(cookies_path, cookies_tmp)
+                cmd += ["--cookies", cookies_tmp]
 
             cmd.append(str(url))
 
@@ -56,6 +66,12 @@ class YTDLPDownloader(IDownloader):
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await process.communicate()
+
+            if cookies_tmp:
+                try:
+                    os.unlink(cookies_tmp)
+                except OSError:
+                    pass
 
             if process.returncode != 0:
                 error_msg = stderr.decode().strip()[:500] if stderr else "Unknown error"
