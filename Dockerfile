@@ -16,6 +16,10 @@ RUN apt-get update -qq && \
         ffmpeg curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Runtime JS (deno) para que yt-dlp resuelva el signature/n-challenge de YouTube.
+# Sin él, YouTube solo expone formatos de imagen ("Only images available").
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
+
 COPY pyproject.toml ./
 # Lean runtime deps — NO torch/CUDA. Transcription runs on the Groq Whisper API
 # (GroqWhisperSTT, primary). `openai-whisper` is intentionally omitted: it pulled
