@@ -43,6 +43,13 @@ class GalleryDLDownloader(IDownloader):
                 cmd.insert(1, "--cookies")
                 cmd.insert(2, str(cookies_path))
 
+            # Proxy residencial/móvil: Instagram/Twitter/etc. desafían la IP del
+            # datacenter (devuelven "redirect to home") aun con sesión válida.
+            # Rutear por una IP residencial hace que IG acepte la sesión.
+            if settings.download_proxy:
+                cmd.insert(1, "--proxy")
+                cmd.insert(2, settings.download_proxy)
+
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,

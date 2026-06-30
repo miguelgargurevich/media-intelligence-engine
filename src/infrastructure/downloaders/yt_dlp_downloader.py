@@ -61,6 +61,14 @@ class YTDLPDownloader(IDownloader):
                 shutil.copy(cookies_path, cookies_tmp)
                 cmd += ["--cookies", cookies_tmp]
 
+            # Proxy residencial SOLO para sitios que bloquean la IP del datacenter
+            # (Instagram/Facebook/TikTok como fallback de gallery-dl). YouTube queda
+            # directo: funciona y el proxy residencial puede romper el ejs-challenge.
+            domain = (url.domain or "").lower()
+            is_youtube = "youtube.com" in domain or "youtu.be" in domain
+            if settings.download_proxy and not is_youtube:
+                cmd += ["--proxy", settings.download_proxy]
+
             cmd.append(str(url))
 
             process = await asyncio.create_subprocess_exec(
