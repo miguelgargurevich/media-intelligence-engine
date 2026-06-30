@@ -41,11 +41,6 @@ class Settings(BaseSettings):
     yt_dlp_path: str = "yt-dlp"
     gallery_dl_path: str = "gallery-dl"
     ffmpeg_path: str = "ffmpeg"
-    # Proxy (residencial/móvil) para sitios que bloquean la IP del datacenter
-    # (Instagram, Facebook, TikTok). NO se aplica a YouTube (funciona directo y un
-    # proxy residencial puede romper el signature/n-challenge). Formato yt-dlp/gallery-dl:
-    # http://user:pass@host:port  o  socks5://host:port
-    download_proxy: Optional[str] = None
 
     # --- Playwright ---
     playwright_headless: bool = True
