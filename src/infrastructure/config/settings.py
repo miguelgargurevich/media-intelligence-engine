@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # --- Vision Providers ---
     openai_api_key: Optional[str] = None
     openai_model: str = "gpt-4o"
+    # base_url opcional para apuntar el proveedor "openai" a un endpoint OpenAI-compatible
+    # (ej. DeepInfra: https://api.deepinfra.com/v1/openai con un modelo VL como Qwen3-VL).
+    openai_base_url: Optional[str] = None
 
     gemini_api_key: Optional[str] = None
     gemini_model: str = "gemini-1.5-pro"
@@ -76,6 +79,9 @@ class Settings(BaseSettings):
     default_vision_provider: str = "openai"
 
     # --- Semantic Analysis (LLM cascada) ---
+    # DeepInfra (OpenAI-compatible) primario barato; DeepSeek/Gemini/Groq de fallback.
+    deepinfra_llm_api_key: Optional[str] = None
+    deepinfra_llm_model: str = "deepseek-ai/DeepSeek-V4-Flash"
     deepseek_llm_api_key: Optional[str] = None
     deepseek_llm_model: str = "deepseek-chat"
 

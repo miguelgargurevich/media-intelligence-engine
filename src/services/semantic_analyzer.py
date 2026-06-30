@@ -80,6 +80,30 @@ async def call_llm_provider(url: str, headers: dict, body: dict, timeout: int) -
     return None
 
 
+async def deepinfra_analyze(user_prompt: str) -> Optional[str]:
+    """Call DeepInfra (OpenAI-compatible) — primario barato."""
+    if not settings.deepinfra_llm_api_key:
+        return None
+    return await call_llm_provider(
+        url="https://api.deepinfra.com/v1/openai/chat/completions",
+        headers={
+            "Authorization": f"Bearer {settings.deepinfra_llm_api_key}",
+            "Content-Type": "application/json",
+        },
+        body={
+            "model": settings.deepinfra_llm_model,
+            "messages": [
+                {"role": "system", "content": UNIVERSAL_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.2,
+            "max_tokens": 16000,
+            "response_format": {"type": "json_object"},
+        },
+        timeout=settings.semantic_timeout_seconds,
+    )
+
+
 async def deepseek_analyze(user_prompt: str) -> Optional[str]:
     """Call DeepSeek Chat API."""
     if not settings.deepseek_llm_api_key:
@@ -195,8 +219,9 @@ TRANSCRIPCIÓN:
     last_err = ""
     raw_text = None
 
-    # Cascada: DeepSeek → Gemini → Groq
+    # Cascada: DeepInfra → DeepSeek (primarios) → Gemini → Groq (fallback free)
     for attempt_name, attempt_fn in [
+        ("DeepInfra", deepinfra_analyze),
         ("DeepSeek", deepseek_analyze),
         ("Gemini", gemini_analyze),
         ("Groq", groq_analyze),

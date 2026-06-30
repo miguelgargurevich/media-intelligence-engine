@@ -38,7 +38,8 @@ class GPTVisionProvider(BaseVisionProvider):
                     provider=self.provider_name,
                 )
 
-            client = AsyncOpenAI(api_key=self._api_key)
+            # base_url permite apuntar a un endpoint OpenAI-compatible (ej. DeepInfra Qwen3-VL).
+            client = AsyncOpenAI(api_key=self._api_key, base_url=(settings.openai_base_url or None))
             base64_image = self._encode_image(image_path)
             image_format = self._get_image_format(image_path)
 
