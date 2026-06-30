@@ -38,6 +38,9 @@ class YTDLPDownloader(IDownloader):
             cmd = [
                 settings.yt_dlp_path,
                 "--no-playlist",
+                # Descarga el solver EJS (corre con deno) para resolver el
+                # signature/n-challenge de YouTube; sin esto YouTube solo da imágenes.
+                "--remote-components", "ejs:github",
                 "--print", "after_move:filepath",
                 "--print", "title",
                 "--print", "duration",
