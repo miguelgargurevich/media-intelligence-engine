@@ -28,7 +28,7 @@ COPY pyproject.toml ./
 RUN pip install --no-cache-dir \
         fastapi "uvicorn[standard]" pydantic pydantic-settings httpx \
         structlog tenacity python-multipart opencv-python-headless \
-        yt-dlp gallery-dl
+        yt-dlp gallery-dl openai
 
 COPY src/ ./src/
 
