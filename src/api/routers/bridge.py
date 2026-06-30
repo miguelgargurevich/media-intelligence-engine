@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 
 from src.api.routers.analyze import build_analyze_response
 from src.infrastructure.config.logging_config import get_logger
@@ -52,55 +52,37 @@ async def fail(item_id: int, error: str = Form(""), requeue: bool = Form(False))
 file_router = APIRouter(tags=["bridge"])
 
 
-@file_router.post(
-    "/analyze-file",
-    summary="Analiza un archivo de media YA descargado (subido por el puente residencial)",
-    description="Recibe un archivo (multipart) ya bajado en una IP residencial (ej. reel de "
-    "Instagram bajado por el Mac), corre el pipeline completo, guarda el análisis en dashboardIA "
-    "y avisa por Telegram. Pensado para el daemon del puente; no para uso interactivo.",
-)
-async def analyze_file(
-    file: UploadFile = File(...),
-    source_url: str = Form(...),
-    queue_id: Optional[int] = Form(None),
-    language: Optional[str] = Form(None),
-    max_duration: Optional[int] = Form(None),
-) -> dict:
-    # Persistir el upload en el dir de descargas.
-    settings.download_dir.mkdir(parents=True, exist_ok=True)
-    suffix = Path(file.filename or "upload.mp4").suffix or ".mp4"
-    fd, tmp_path = tempfile.mkstemp(prefix="bridge_", suffix=suffix, dir=str(settings.download_dir))
+async def _process_bridge_file(
+    tmp_path: str,
+    source_url: str,
+    queue_id: Optional[int],
+    language: Optional[str],
+    max_duration: Optional[int],
+) -> None:
+    """Corre el pipeline sobre el archivo subido, guarda en dashboardIA y avisa por Telegram.
+
+    Se ejecuta como BackgroundTask: el endpoint ya respondió 202, así que ningún proxy puede
+    cortar la respuesta por más que el pipeline tarde (transcripción + visión + semántico).
+    """
     try:
-        import os
-        with os.fdopen(fd, "wb") as out:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                out.write(chunk)
-
-        logger.info("Bridge file recibido", source_url=source_url, path=tmp_path, queue_id=queue_id)
-
-        pipeline = Pipeline()
         kwargs = {}
         if language:
             kwargs["language"] = language
         if max_duration:
             kwargs["max_duration"] = max_duration
+        pipeline = Pipeline()
         result = await pipeline.run_from_file(file_path=tmp_path, source_url=source_url, **kwargs)
 
         if result.status == "failed":
+            logger.warning("bridge pipeline failed", source_url=source_url, error=result.error)
             if queue_id:
                 ig_bridge_queue.mark_failed(queue_id, error=result.error or "pipeline failed")
-            raise HTTPException(status_code=422, detail=result.error or "Pipeline failed")
+            await notify_telegram(f"⚠️ No pude analizar el reel:\n{source_url}\n{result.error or ''}")
+            return
 
-        response = build_analyze_response(result)
-        raw = response.model_dump()
-
-        # Guardar en dashboardIA (VideoTranscription + RAG), como hace el MCP en el flujo normal.
+        raw = build_analyze_response(result).model_dump()
         saved = await save_to_dashboard(raw, source_url, language)
 
-        # Avisar por Telegram que quedó listo.
         title = result.title or "Reel de Instagram"
         summary = (result.summary or "").strip()
         if len(summary) > 600:
@@ -114,18 +96,60 @@ async def analyze_file(
 
         if queue_id:
             ig_bridge_queue.mark_done(queue_id)
-
-        return {
-            "status": result.status,
-            "title": result.title,
-            "saved": bool(saved and saved.get("id")),
-            "dashboard_id": (saved or {}).get("id"),
-            "notified": True,
-        }
-    except HTTPException:
-        raise
+        logger.info("bridge file procesado", source_url=source_url, saved=bool(saved and saved.get("id")))
     except Exception as exc:
-        logger.error("analyze-file failed", error=str(exc))
+        logger.error("bridge background processing failed", error=str(exc))
         if queue_id:
             ig_bridge_queue.mark_failed(queue_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+@file_router.post(
+    "/analyze-file",
+    summary="Recibe un archivo de media YA descargado (subido por el puente residencial)",
+    description="Recibe un archivo (multipart) ya bajado en una IP residencial (ej. reel de "
+    "Instagram bajado por el Mac), responde 202 al instante y procesa en BACKGROUND: corre el "
+    "pipeline, guarda el análisis en dashboardIA y avisa por Telegram. Pensado para el daemon "
+    "del puente; no para uso interactivo.",
+    status_code=202,
+)
+async def analyze_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    source_url: str = Form(...),
+    queue_id: Optional[int] = Form(None),
+    language: Optional[str] = Form(None),
+    max_duration: Optional[int] = Form(None),
+) -> dict:
+    # Persistir el upload en el dir de descargas (sobrevive al fin de la request).
+    import os
+
+    settings.download_dir.mkdir(parents=True, exist_ok=True)
+    suffix = Path(file.filename or "upload.mp4").suffix or ".mp4"
+    fd, tmp_path = tempfile.mkstemp(prefix="bridge_", suffix=suffix, dir=str(settings.download_dir))
+    size = 0
+    with os.fdopen(fd, "wb") as out:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+            size += len(chunk)
+
+    logger.info("Bridge file recibido", source_url=source_url, path=tmp_path, queue_id=queue_id, bytes=size)
+
+    if size == 0:
+        Path(tmp_path).unlink(missing_ok=True)
+        if queue_id:
+            ig_bridge_queue.mark_failed(queue_id, error="archivo vacío")
+        raise HTTPException(status_code=400, detail="archivo vacío")
+
+    # Procesar en background: el pipeline puede tardar minutos; respondemos ya.
+    background_tasks.add_task(
+        _process_bridge_file, tmp_path, source_url, queue_id, language, max_duration
+    )
+    return {"status": "accepted", "queue_id": queue_id, "bytes": size}
