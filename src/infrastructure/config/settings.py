@@ -94,6 +94,16 @@ class Settings(BaseSettings):
 
     semantic_timeout_seconds: int = 300  # 5 min por proveedor
 
+    # --- Puente de descarga residencial (Instagram) ---
+    # IG bloquea la IP del datacenter; un daemon en una máquina residencial (Mac) baja
+    # los reels encolados y los sube a /analyze-file. mie guarda el análisis en dashboardIA
+    # y avisa por Telegram (el MCP no está en el loop en este flujo).
+    ig_bridge_enabled: bool = True
+    dashboard_api_base: Optional[str] = None       # ej. https://dashboardia.gargurevich.dev
+    dashboard_service_token: Optional[str] = None  # X-Service-Token (= AGENT_SERVICE_TOKEN del backend)
+    telegram_bot_token: Optional[str] = None       # mismo token del bot de OpenClaw
+    telegram_notify_chat_id: Optional[str] = None  # chat de Miguel
+
     # --- Storage ---
     storage_backend: str = "local"
     s3_endpoint: Optional[str] = None

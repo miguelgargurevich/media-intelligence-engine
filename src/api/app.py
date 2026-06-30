@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.middleware.correlation_id import CorrelationIDMiddleware
-from src.api.routers import analyze, health
+from src.api.routers import analyze, bridge, health
 from src.infrastructure.config.logging_config import configure_logging, get_logger
 from src.infrastructure.config.settings import settings
 
@@ -44,6 +44,8 @@ app.add_middleware(CorrelationIDMiddleware)
 # Routers
 app.include_router(health.router)
 app.include_router(analyze.router)
+app.include_router(bridge.router)
+app.include_router(bridge.file_router)
 
 
 @app.on_event("startup")

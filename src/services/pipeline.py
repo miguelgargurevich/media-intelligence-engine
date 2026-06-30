@@ -70,6 +70,50 @@ class Pipeline:
                     result.error = "Could not obtain media from URL"
                     return result
 
+            return await self._process(result, media, **kwargs)
+
+        except Exception as exc:
+            logger.error("Pipeline failed", error=str(exc))
+            result.status = PipelineStatus.FAILED.value
+            result.error = str(exc)
+            return result
+
+    async def run_from_file(
+        self,
+        file_path: str,
+        source_url: str,
+        **kwargs,
+    ) -> AnalysisResult:
+        """Procesa un archivo de media YA descargado (salta la fase de descarga).
+
+        Lo usa el PUENTE residencial: el Mac baja el reel de Instagram (mie no puede
+        por el bloqueo de IP) y sube el .mp4 a /analyze-file. A partir de ahí el pipeline
+        es idéntico al de una URL.
+        """
+        result = AnalysisResult(source_url=source_url)
+        try:
+            path = Path(file_path)
+            if not path.exists() or path.stat().st_size == 0:
+                result.status = PipelineStatus.FAILED.value
+                result.error = f"File not found or empty: {file_path}"
+                return result
+            url = URL.from_string(source_url)
+            media = Media(
+                source_url=url,
+                media_type=MediaType.VIDEO,
+                file_path=path,
+                title=kwargs.get("title"),
+            )
+            return await self._process(result, media, **kwargs)
+        except Exception as exc:
+            logger.error("Pipeline (from file) failed", error=str(exc))
+            result.status = PipelineStatus.FAILED.value
+            result.error = str(exc)
+            return result
+
+    async def _process(self, result: AnalysisResult, media: Media, **kwargs) -> AnalysisResult:
+        """Fases 3-8 (comunes a run/run_from_file): frames, OCR, audio, visión, fusión, semántico."""
+        try:
             result.title = media.title
             result.description = media.description
             result.duration = media.duration
