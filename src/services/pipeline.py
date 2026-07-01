@@ -26,6 +26,14 @@ from src.ports.downloader import IDownloader, DownloadResult
 
 logger = get_logger(__name__)
 
+# Dominios donde el fallback de grabación de pantalla (Phase 2) es CONTRAPRODUCENTE: la IP
+# del datacenter está bloqueada (login wall / "contenido no disponible"), así que en vez de
+# fallar limpio, el screen-recorder graba la página rota, el OCR lee ese texto (vistas,
+# reacciones, caption) y el LLM "inventa" un análisis a partir de eso — guardando basura en
+# el dashboard como si fuera una transcripción real (ej. Facebook: 2026-07-01). Mejor fallar
+# con error claro que dar un falso positivo.
+_NO_RECORDING_FALLBACK_DOMAINS = ("facebook.com", "fb.watch")
+
 
 class Pipeline:
     """Main analysis pipeline that orchestrates the entire workflow."""
@@ -62,6 +70,14 @@ class Pipeline:
             result.status = PipelineStatus.DOWNLOADING.value
             media = await self._download_media(url, result)
             if not media or not media.file_path:
+                domain = (url.domain or "").lower()
+                if any(d in domain for d in _NO_RECORDING_FALLBACK_DOMAINS):
+                    result.status = PipelineStatus.FAILED.value
+                    result.error = (
+                        "No se pudo descargar el video (bloqueado desde este servidor). "
+                        "Mandalo como archivo para analizarlo."
+                    )
+                    return result
                 # Phase 2: Try recording as fallback
                 result.status = PipelineStatus.RECORDING.value
                 media = await self._record_media(url, result)
